@@ -6,7 +6,8 @@
                 "${workspaceFolder}/**",
                 "${workspaceFolder}/deps/ramulator/src/**",
                 "${workspaceFolder}/src/**",
-                "${workspaceFolder}/deps/ramulator/src"
+                "${workspaceFolder}/deps/ramulator/src",
+                "${workspaceFolder}/src"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

@@ -31,7 +31,7 @@ static map<string, function<MemoryBase *(const Config &, int)>> name_to_func = {
     {"SALP-MASA", &MemoryFactory<SALP>::create},
 };
 
-ramulator_wrapper::ramulator_wrapper(const ramulator::Config &configs,
+ramulator_wrapper::ramulator_wrapper(const ramulator::Config configs,
                                      int cacheline) {
   const string &std_name = configs["standard"];
   assert(name_to_func.find(std_name) != name_to_func.end() &&

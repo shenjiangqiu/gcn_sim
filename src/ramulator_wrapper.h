@@ -21,7 +21,7 @@ public:
   void send(uint64_t addr, bool is_read);
   void tick();
   void finish();
-  ramulator_wrapper(const ramulator::Config &configs, int cacheline);
+  ramulator_wrapper(const ramulator::Config configs, int cacheline);
   ~ramulator_wrapper();
   void call_back(ramulator::Request &req);
   bool empty() const;
