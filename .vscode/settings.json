@@ -62,5 +62,6 @@
         "future": "cpp",
         "mutex": "cpp",
         "regex": "cpp"
-    }
+    },
+    "cmake.configureOnOpen": false
 }

@@ -18,7 +18,7 @@ private:
   std::map<unsigned long long, std::shared_ptr<Req>> addr_to_req_map;
 
 public:
-  void cycle();
+
   bool avaliable() { return req_queue.size() < waiting_size; }
   void send(std::shared_ptr<Req> req) {
     assert(req_queue.size() < waiting_size);

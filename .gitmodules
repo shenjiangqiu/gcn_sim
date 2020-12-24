@@ -4,3 +4,6 @@
 [submodule "deps/ramulator"]
 	path = deps/ramulator
 	url = https://github.com/shenjiangqiu/ramulator.git
+[submodule "deps/spdlog"]
+	path = deps/spdlog
+	url = https://github.com/gabime/spdlog.git

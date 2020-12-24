@@ -3,7 +3,7 @@
 #include <graph.h>
 #include <iostream>
 int main() {
-  Graph m_graph("test");
+  Graph<unsigned> m_graph("test");
   m_graph.print();
   return 0;
 }

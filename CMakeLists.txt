@@ -1,6 +1,9 @@
 project(gcn_sim)
+cmake_minimum_required(VERSION 3.10)
 add_subdirectory(deps/fmt)
 add_subdirectory(deps/ramulator)
+add_subdirectory(deps/spdlog)
+
 set(CMAKE_CXX_STANDARD 17)
 file(GLOB lib_srcs src/*.cc)
 list(FILTER lib_srcs EXCLUDE REGEX  ".*main.cc")

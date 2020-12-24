@@ -3,9 +3,9 @@
 #include <assert.h>
 #include <memory>
 #include <queue>
+#include <ramulator_wrapper.h>
 #include <string>
 #include <types.h>
-
 // INPUT:
 // send the req into the input queue,
 // and call buffer.cycle
@@ -39,6 +39,21 @@ private:
   // TODO write send to dram logic
 
 public:
+  void clear() {
+    current_addr = 0;
+    current_lenghth = 0;
+    current_data_ready = false;
+    current_task_ready = false;
+    current_task_sent = false;
+
+    next_addr = 0;
+    next_lenghth = 0;
+    next_data_ready = false;
+    next_task_ready = false;
+    next_task_sent = false;
+    x = 0, y = 0, z = 0, l = 0;
+    nx = 0, ny = 0, nz = 0, nl = 0;
+  }
   void send(std::shared_ptr<Req> req) { in_task_queu.push(req); }
   void cycle();
   std::tuple<unsigned, unsigned, unsigned, unsigned> get_current_location() {
@@ -117,6 +132,13 @@ public:
   void set_next_task_ready() {
     assert(next_task_ready == false);
     next_task_ready = true;
+  }
+
+  void insert_next(std::shared_ptr<Req> r) {
+    next_task_ready = true;
+    next_buffer_task = r;
+    assert(next_task_sent = false);
+    assert(next_data_ready = false);
   }
 };
 #endif /* BUFFER_H */
