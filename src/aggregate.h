@@ -310,11 +310,11 @@ public:
             prefetch_input(nx, ny, nz);
             prefetch_edge(nx, ny, nz);
             assert(InputBuffer.get_current_location() ==
-                   std::make_tuple(x, y, z));
+                   std::make_tuple(x, y, z, current_level));
             assert(EdgeBuffer.get_current_location() ==
-                   std::make_tuple(x, y, z));
+                   std::make_tuple(x, y, z, current_level));
             assert(OutputBuffer.get_current_location() ==
-                   std::make_tuple(x, y, z));
+                   std::make_tuple(x, y, z, current_level));
 
             if (buffer_ready(x, y)) {
               current_window_remain_cycles =
@@ -336,11 +336,11 @@ public:
             auto [nx, ny, nz] = get_next_window();
             prefetch_input(nx, ny, nz);
             assert(InputBuffer.get_current_location() ==
-                   std::make_tuple(x, y, z));
+                   std::make_tuple(x, y, z, current_level));
             assert(EdgeBuffer.get_current_location() ==
-                   std::make_tuple(x, y, z));
+                   std::make_tuple(x, y, z, current_level));
             assert(OutputBuffer.get_current_location() ==
-                   std::make_tuple(x, y, z));
+                   std::make_tuple(x, y, z, current_level));
 
             if (buffer_ready(x, y)) {
               current_window_remain_cycles =
@@ -369,8 +369,21 @@ public:
     // dram_to_edge
   }
 
-  unsigned calculate_the_cycle_of_window(unsigned x, unsigned y, unsigned z);
-  bool buffer_ready(unsigned row, unsigned col);
+  unsigned calculate_the_cycle_of_window(unsigned x, unsigned y, unsigned z) {
+    return 100;
+  }
+  bool buffer_ready(unsigned row, unsigned col) {
+    auto input_ready = InputBuffer.is_current_data_r\
+    auto edge_ready = EdgeBuffer.is_current_data_ready();
+
+    assert(std::get<0>(InputBuffer.get_current_location()) == row);
+    assert(std::get<1>(InputBuffer.get_current_location()) == col);
+
+    assert(std::get<0>(EdgeBuffer.get_current_location()) == row);
+    assert(std::get<1>(EdgeBuffer.get_current_location()) == col);
+
+    return input_ready and edge_ready;
+  }
   void prefetch_input(unsigned x, unsigned y, unsigned z) {
     // the next buffer should be emtpy
     if (z == 0) {
@@ -411,7 +424,7 @@ public:
       start_index += total_x * feature_elements[i];
     }
     start_index += y * feature_elements[current_level];
-    return &feature_vectors[start_index];
+    return (unsigned long long)&feature_vectors[start_index];
   }
   unsigned long long get_edge_addr_by_location(unsigned x, unsigned y,
                                                unsigned z) {

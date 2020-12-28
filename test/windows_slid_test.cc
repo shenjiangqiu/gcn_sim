@@ -11,6 +11,7 @@ TEST_CASE("slid_test") {
       Aggregator<unsigned>(std::make_shared<Graph<unsigned>>("test"), name, 64,
                            16, 16, 128, 4, {1, 1, 1, 1});
   while (true) {
+    m_aggregator.cycle();
     auto [x, y, z] = m_aggregator.get_next_window();
     if (x == 0 and y == 0 and z == 0) {
       break;
