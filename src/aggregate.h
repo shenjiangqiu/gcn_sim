@@ -11,11 +11,64 @@
 #include <size.h>
 #include <tuple>
 #include <types.h>
+class Comb {
+
+public:
+  unsigned calculate_comb_cycle(unsigned number_v, unsigned size_v_in,
+                                unsigned size_v_out) {
+    unsigned total_cycle = 0;
+
+    auto total_row = num_module * num_row;
+    auto number_round_v = (number_v + total_row - 1) / total_row;
+    auto number_round_w = (size_v_out + num_col - 1) / num_col;
+    auto the_last_v = number_v - (number_round_v - 1) * total_row;
+    auto the_last_w = size_v_out - (number_round_w - 1) * total_row;
+
+    // for every full task get the cycle:
+    for (auto i = 0; i < number_round_v - 1; i++) {
+      for (auto j = 0; j < number_round_w - 1; j++) {
+        total_cycle += total_row + size_v_in + num_col;
+      }
+    }
+    for (auto i = 0; i < number_round_v - 1; i++) {
+      if (the_last_w != 0) {
+        total_cycle += total_row + size_v_in + the_last_w;
+      }
+    }
+    total_cycle += the_last_v + size_v_in + the_last_w;
+
+    
+    return total_cycle;
+  }
+  unsigned get_comb_cycle();
+  void set_comb_cycle(unsigned cycle) {
+    assert(current_remain_cycle == 0);
+    current_remain_cycle = cycle;
+  }
+  void set_busy() { busy = true; }
+  void set_no_busy() { busy = false; }
+  bool is_busy() { return current_remain_cycle != 0; }
+  void cycle() {
+    if (current_remain_cycle != 0) {
+      current_remain_cycle--;
+    }
+  }
+
+private:
+  unsigned current_remain_cycle;
+  bool busy;
+
+  unsigned num_module;
+  unsigned num_row;
+  unsigned num_col;
+};
+
 template <typename Node_type> class Aggregator {
 
   // the aggregator. need to deal with partition and memory fetch.
 
 private:
+  std::shared_ptr<Comb> m_combination_unit;
   // multi level, multi nodes, multi
   // elements per node, 3d array
   Node_type *feature_vectors;
@@ -39,6 +92,7 @@ private:
   unsigned current_level = 0;
   unsigned current_window_size;
   unsigned current_window_remain_cycles = 0;
+
   unsigned long long m_cycle;
   bool current_waiting_buffer = true;
   bool next_input_ready = false;
@@ -52,8 +106,9 @@ private:
   std::shared_ptr<memory_interface> m_mem_interface;
 
   Buffer InputBuffer;
-  Buffer OutputBuffer;
+  Buffer CombOutputBuffer;
   Buffer EdgeBuffer;
+  Aggregator_buffer aggr_buffer;
   unsigned num_cores;
 
   std::queue<std::shared_ptr<Req>> input_request_q;
@@ -186,9 +241,32 @@ public:
 
     // the combination logic
     InputBuffer.cycle();
-    OutputBuffer.cycle();
+    // write back
+    CombOutputBuffer.cycle();
     EdgeBuffer.cycle();
     m_mem_interface->cycle();
+
+    if (aggr_buffer.is_current_ready() and !m_combination_unit->is_busy() and
+        CombOutputBuffer.is_next_empty()) {
+      auto next_cycle = m_combination_unit->calculate_comb_cycle(OutputBuffer);
+      m_combination_unit->set_comb_cycle(next_cycle);
+      m_combination_unit->set_busy();
+    }
+    if (m_combination_unit->is_busy()) {
+      auto remain_cycle = m_combination_unit->get_comb_cycle();
+      if (remain_cycle == 0 and CombOutputBuffer.is_current_empty()) {
+        // finished
+        // set not busy
+        m_combination_unit->set_no_busy();
+        // out buffer move to current and start to write
+        CombOutputBuffer.just_move_the_buffer();
+        // aggregate buffer move next to current
+        aggr_buffer.move();
+
+      } else {
+        // may be not empy
+      }
+    }
 
     // local cycle:
     if (InputBuffer.is_out_send_q_ready()) {
@@ -373,7 +451,7 @@ public:
     return 100;
   }
   bool buffer_ready(unsigned row, unsigned col) {
-    auto input_ready = InputBuffer.is_current_data_r\
+    auto input_ready = InputBuffer.is_current_data_ready();
     auto edge_ready = EdgeBuffer.is_current_data_ready();
 
     assert(std::get<0>(InputBuffer.get_current_location()) == row);

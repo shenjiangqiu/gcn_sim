@@ -16,9 +16,9 @@ private:
 
   std::map<unsigned, unsigned> id_to_numreqs_map;
   std::map<unsigned long long, std::shared_ptr<Req>> addr_to_req_map;
+  std::shared_ptr<ramulator_wrapper> m_ramulator;
 
 public:
-
   bool avaliable() { return req_queue.size() < waiting_size; }
   void send(std::shared_ptr<Req> req) {
     assert(req_queue.size() < waiting_size);
@@ -36,9 +36,11 @@ public:
     return ret;
   }
 
-  memory_interface();
+  memory_interface(const std::string &dram_config_name) : m_ramulator(new ramulator_wrapper(dram_config_name, 64)) {}
 
   void cycle() {
+
+    m_ramulator->tick();
     // send policy changed here
     if (!req_queue.empty()) {
       auto next_req = req_queue.front();
@@ -62,6 +64,17 @@ public:
         id_to_numreqs_map.erase(req->id);
         task_return_queue.push(req);
       }
+    }
+
+    // to dram
+    if (!out_send_queue.empty()) {
+      auto req = out_send_queue.front();
+      out_send_queue.pop();
+      m_ramulator->send(req.first, !req.second);
+    }
+    if (m_ramulator->return_avaliable()) {
+      auto req = m_ramulator->pop();
+      response_queue.push(req);
     }
   }
 };

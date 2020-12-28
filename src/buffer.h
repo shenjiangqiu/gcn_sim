@@ -6,6 +6,23 @@
 #include <ramulator_wrapper.h>
 #include <string>
 #include <types.h>
+
+class Aggregator_buffer {
+public:
+  Aggregator_buffer();
+  // this is the special buffer for the aggregator and comb,
+  // the aggregator put the result in
+  // the comb comsume the buffer.
+  void set_next();
+  void complete();
+  void move();
+
+  bool is_current_ready();
+  bool is_next_empty();
+
+private:
+  //
+};
 // INPUT:
 // send the req into the input queue,
 // and call buffer.cycle
