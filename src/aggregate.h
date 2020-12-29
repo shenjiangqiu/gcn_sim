@@ -37,10 +37,9 @@ public:
     }
     total_cycle += the_last_v + size_v_in + the_last_w;
 
-    
     return total_cycle;
   }
-  unsigned get_comb_cycle();
+  unsigned get_comb_cycle() { return current_remain_cycle; }
   void set_comb_cycle(unsigned cycle) {
     assert(current_remain_cycle == 0);
     current_remain_cycle = cycle;
@@ -92,6 +91,8 @@ private:
   unsigned current_level = 0;
   unsigned current_window_size;
   unsigned current_window_remain_cycles = 0;
+  bool current_running = false;
+  bool current_finished = false;
 
   unsigned long long m_cycle;
   bool current_waiting_buffer = true;
@@ -106,7 +107,7 @@ private:
   std::shared_ptr<memory_interface> m_mem_interface;
 
   Buffer InputBuffer;
-  Buffer CombOutputBuffer;
+  WriteBuffer CombOutputBuffer;
   Buffer EdgeBuffer;
   Aggregator_buffer aggr_buffer;
   unsigned num_cores;
@@ -244,29 +245,44 @@ public:
     // write back
     CombOutputBuffer.cycle();
     EdgeBuffer.cycle();
+    // aggr buffer do not need cycle because it do not need to access memory
     m_mem_interface->cycle();
+    m_combination_unit->cycle();
 
+    // start a new comb task
+    // require: aggr_buffer current ready, and comb not busy, and out buffer
+    // next empty result: set the comb to busy and a remain busy cycle, the comb
+    // will decrease the busy in comb.cycle
     if (aggr_buffer.is_current_ready() and !m_combination_unit->is_busy() and
         CombOutputBuffer.is_next_empty()) {
       auto next_cycle = m_combination_unit->calculate_comb_cycle(OutputBuffer);
       m_combination_unit->set_comb_cycle(next_cycle);
       m_combination_unit->set_busy();
     }
+
+    // end a combination unit
+    // require: comb is busy and remain cycle is zero
+    // action: this round is over, prepare for the next round
+    // result: the comb: because not busy
+    //  the outbuffer:finished write
+    // the aggrbuffer: invalid current buffer
     if (m_combination_unit->is_busy()) {
       auto remain_cycle = m_combination_unit->get_comb_cycle();
       if (remain_cycle == 0 and CombOutputBuffer.is_current_empty()) {
         // finished
         // set not busy
         m_combination_unit->set_no_busy();
-        // out buffer move to current and start to write
-        CombOutputBuffer.just_move_the_buffer();
+        // set output buffer finished write
+        CombOutputBuffer.end_write();
         // aggregate buffer move next to current
-        aggr_buffer.move();
+        aggr_buffer.complete_next();
 
       } else {
         // may be not empy
       }
     }
+
+    // the following code shows the action from buffer to dram interface
 
     // local cycle:
     if (InputBuffer.is_out_send_q_ready()) {
@@ -283,55 +299,56 @@ public:
       auto req = EdgeBuffer.pop_out_send_req();
       m_mem_interface->send(req);
     }
+    if (CombOutputBuffer.is_out_send_q_ready()) {
+      auto req = CombOutputBuffer.pop_out_send_req();
+      m_mem_interface->send(req);
+    }
+    // END send to memory
 
-    // the very beginning
+    // when there are no task ready for aggregator
+    // action: setup a task for aggregation unit
+    // result setup current_x,current_y
     if (current_window_size == 0) {
       // no task generated now
-      assert(InputBuffer.is_current_task_ready() == false);
-
+      assert(!current_running and !current_finished);
       assert(current_x == 0 and current_y == 0);
+      assert(InputBuffer.is_current_task_ready() == false);
+      assert(aggr_buffer.is_current_empty());
+      assert(EdgeBuffer.is_current_empty());
       auto [x, y, z] = get_next_window();
+      // which mean cannot find a valid window in current level
       if (x == 0 and y == 0 and z == 0) {
         // no more tasks remain.
-        if (current_level + 1 == feature_elements.size()) {
+        // try to move to the next level
+        if (current_level + 1 != feature_elements.size()) {
           current_level++;
         } else {
           finished_all_level = true;
           // finish the simulation, or we need waiting for the writing back.
         }
       } else {
+        // there is the next window found
         current_x = x;
         current_y = y;
         current_window_size = z;
-        // got new task,
-        if (InputBuffer.is_next_task_ready()) {
-          assert(false);
-          // move next to current
-          assert(InputBuffer.get_next_location() ==
-                 std::make_tuple(current_x, current_y, current_window_size,
-                                 current_level));
-          InputBuffer.just_move_the_buffer();
-          assert(EdgeBuffer.is_next_task_ready());
-          EdgeBuffer.just_move_the_buffer();
-        } else {
-          assert(!EdgeBuffer.is_next_task_ready());
-
-          // all new
-          auto req = std::make_shared<Req>();
-          req->addr = get_input_addr_by_location(x, y, z);
-          req->len = z * feature_size * feature_elements[current_level];
-          req->req_type = mem_request::read;
-          req->t = device_types::input_buffer;
-          // will send to the firt
-          InputBuffer.send(req);
-          auto [nx, ny, nz] = get_next_window();
-          prefetch_input(nx, ny, nz);
-          prefetch_edge(nx, ny, nz);
-
-          // TODO contine the cycle function;
+      }
+    }
+    // currently there are tasks remaining
+    if (current_window_size != 0 and !current_running and !current_finished) {
+      //
+      assert(current_window_remain_cycles == 0);
+      if (InputBuffer.is_current_data_ready() and
+          EdgeBuffer.is_current_data_ready() and aggr_buffer.is_next_empty()) {
+        // the buffer is ready, now run it!
+        current_window_remain_cycles =
+            calculate_the_cycle_of_window(current_x, current_y, current_level);
+        current_running = true;
+        if (current_window_remain_cycles == 0) {
+          current_finished = true;
         }
       }
     }
+
     // aggregator_to_output_buffer
     if (current_window_remain_cycles == 0 and current_waiting_buffer) {
       assert(current_window_size != 0);

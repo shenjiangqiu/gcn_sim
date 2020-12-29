@@ -13,16 +13,82 @@ public:
   // this is the special buffer for the aggregator and comb,
   // the aggregator put the result in
   // the comb comsume the buffer.
-  void set_next();
-  void complete();
+  void set_next(std::shared_ptr<Req> req);
+
+  // the next is ready to move
+  void complete_next();
+  void complete_current();
   void move();
 
   bool is_current_ready();
+  bool is_current_empty();
   bool is_next_empty();
+  bool is_next_ready();
 
 private:
+  std::shared_ptr<Req> current_task;
+  std::shared_ptr<Req> next_task;
+  //
+  // which means data is finished process, ready to erase or move
+  bool current_ready, next_ready;
+  bool current_empty, next_emtpy;
   //
 };
+
+class WriteBuffer {
+public:
+  // start to write to the
+  void start_write(std::shared_ptr<Req> req) {
+    assert(!next_req);
+    assert(next_buffer_empty);
+    assert(!next_buffer_finished);
+    next_req = req;
+    next_buffer_empty = false;
+    next_buffer_finished = false;
+  }
+  void end_write() {
+    assert(next_req);
+    assert(!next_buffer_empty);
+    assert(!next_buffer_finished);
+    next_buffer_finished = true;
+  }
+  void move() {
+    assert(!next_buffer_empty and next_buffer_finished);
+    assert(!current_buffer_ready);
+    current_buffer_ready = true;
+    current_buffer_start_send = false;
+    current_buffer_finished = false;
+    current_req = next_req;
+    next_req = nullptr;
+  }
+  std::shared_ptr<Req> pop_next() {
+    assert(current_buffer_ready and current_buffer_start_send);
+    assert(!current_buffer_finished);
+    current_buffer_finished = true;
+    current_buffer_ready = false;
+    current_buffer_start_send = false;
+
+    return current_req;
+  }
+  bool is_current_send_ready() {
+    return current_buffer_ready and current_buffer_start_send and
+           !current_buffer_finished;
+  }
+
+  void cycle() {
+    if (current_buffer_ready and !current_buffer_start_send) {
+      current_buffer_start_send = true;
+      assert(current_buffer_finished == false);
+    }
+  }
+
+private:
+  std::shared_ptr<Req> current_req;
+  std::shared_ptr<Req> next_req;
+  bool current_buffer_ready, current_buffer_start_send, current_buffer_finished;
+  bool next_buffer_empty, next_buffer_finished;
+};
+
 // INPUT:
 // send the req into the input queue,
 // and call buffer.cycle
