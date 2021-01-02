@@ -11,6 +11,15 @@
 #include <size.h>
 #include <tuple>
 #include <types.h>
+#ifndef NDEBUG
+void ASSERT(bool t) {
+#ifndef NDEBUG
+  assert(t);
+#else
+  return;
+#endif
+}
+#endif
 class Comb {
 
 public:
@@ -62,7 +71,7 @@ private:
   unsigned num_col;
 };
 
-template <typename Node_type> class Aggregator {
+class Aggregator {
 
   // the aggregator. need to deal with partition and memory fetch.
 
@@ -70,12 +79,13 @@ private:
   std::shared_ptr<Comb> m_combination_unit;
   // multi level, multi nodes, multi
   // elements per node, 3d array
-  Node_type *feature_vectors;
+  int *feature_vectors;
 
-  std::shared_ptr<Graph<Node_type>> m_graph;
+  std::shared_ptr<Graph> m_graph;
 
   const unsigned input_buffer_size;
   const unsigned output_buffer_size;
+  const unsigned agg_buffer_size;
   const unsigned edge_buffer_size;
   const unsigned feature_size;
   std::vector<unsigned> feature_elements;
@@ -122,24 +132,92 @@ private:
   // 0=in,1=out,2=edge
   std::map<unsigned long long, int> addr_to_dest;
   unsigned global_req_id = 0;
+  struct windows_infomation {
+    unsigned id;
+    unsigned x;
+    unsigned y;
+    unsigned x_w;
+    unsigned y_w;
+    unsigned level;
+    unsigned num_nodes;
+  };
+  std::vector<Aggregator::windows_infomation> win_info;
+  std::map<std::tuple<int, int, int>, unsigned> x_y_l_to_info;
 
 public:
+  void build_win_info() {
+    assert(win_info.size() == 0);
+    //
+    for (auto level = 0; level < feature_elements.size() - 1; level++) {
+      for (auto x = 0; x < m_graph->get_num_nodes();) {
+        // for this colum, build the empty line infomation
+        // first build the empty line array
+        auto next_x = x + slide_width[level];
+        if (next_x > m_graph->get_num_nodes())
+          next_x = m_graph->get_num_nodes();
+
+        auto &edge_index = m_graph->get_edge_index();
+        auto &edges = m_graph->get_edges();
+        std::set<unsigned> current_col_source_set;
+        for (auto e = edge_index.at(x); e < edge_index.at(next_x); e++) {
+          current_col_source_set.insert(edges.at(e));
+        }
+
+        for (auto y = 0; y < m_graph->get_num_nodes();) {
+          // skip and shrink here
+          // skip:
+          while (!current_col_source_set.count(y) and
+                 y < m_graph->get_num_nodes()) {
+            y++;
+          }
+          if (y >= m_graph->get_num_nodes()) {
+            break;
+          }
+          auto next_y = y + slide_height[level];
+          // shrinking:
+          while (!current_col_source_set.count(next_y - 1)) {
+            next_y--;
+          }
+          y = next_y;
+        }
+
+        x = next_x;
+      }
+    }
+  }
+  unsigned calculate_number_of_v(int x, int y, int size, int level) {
+    auto g_edge_index = m_graph->get_edge_index();
+    auto g_edges = m_graph->get_edges();
+
+    auto start_input = y;
+    auto end_input = y + size;
+    auto start_dest = x;
+    auto end_dest = x + slide_width[level];
+    if (end_dest > m_graph->get_num_nodes()) {
+      end_dest = m_graph->get_num_nodes();
+    }
+    unsigned total_number = 0;
+    for (int i = g_edge_index.at(start_dest); i < g_edge_index.at(end_dest);
+         i++) {
+      //
+    }
+  }
   bool is_running() const;
-  Aggregator(std::shared_ptr<Graph<Node_type>> graph,
-             const ramulator::Config configs, int cacheline, unsigned in_s,
-             unsigned out_s, unsigned e_s, unsigned feat_s,
-             std::vector<unsigned> feat_l)
+  Aggregator(std::shared_ptr<Graph> graph, const ramulator::Config configs,
+             int cacheline, unsigned in_s, unsigned agg_s, unsigned out_s,
+             unsigned e_s, unsigned feat_s, std::vector<unsigned> feat_l)
       : m_graph(graph), input_buffer_size(in_s), output_buffer_size(out_s),
-        edge_buffer_size(e_s), feature_size(feat_s), feature_elements(feat_l),
-        current_x(0), current_y(0), current_window_size(0), m_cycle(0),
+        agg_buffer_size(agg_s), edge_buffer_size(e_s), feature_size(feat_s),
+        feature_elements(feat_l), current_x(0), current_y(0),
+        current_window_size(0), m_cycle(0),
         m_ramulator(std::make_shared<ramulator_wrapper>(configs, cacheline)),
-        InputBuffer("inputBuffer"), OutputBuffer("outputBuffer"),
+        InputBuffer("inputBuffer"), CombOutputBuffer("outputBuffer"),
         EdgeBuffer("edgeBuffer"), input_request_q(), input_response_q(),
         output_request_q(), output_response_q(), edge_request_q(),
         edge_response_q() {
     for (unsigned i = 0; i < feature_elements.size(); i++) {
       slide_width[i] =
-          (output_buffer_size / 2) / (feature_size * feature_elements[i]);
+          (agg_buffer_size / 2) / (feature_size * feature_elements[i]);
       slide_height[i] =
           (input_buffer_size / 2) / (feature_size * feature_elements[i]);
       std::cout << slide_width[i] << std::endl;
@@ -151,7 +229,7 @@ public:
     for (unsigned i = 0; i < total_level; i++) {
       total_elements += feat_l[i] * m_graph->get_num_nodes();
     }
-    feature_vectors = new Node_type[total_elements];
+    feature_vectors = new int[total_elements];
 
     total_x = m_graph->get_num_nodes();
     total_y = total_x;
@@ -255,7 +333,13 @@ public:
     // will decrease the busy in comb.cycle
     if (aggr_buffer.is_current_ready() and !m_combination_unit->is_busy() and
         CombOutputBuffer.is_next_empty()) {
-      auto next_cycle = m_combination_unit->calculate_comb_cycle(OutputBuffer);
+      auto number_of_v = calculate_number_of_v(
+          current_x, current_y, current_window_size, current_level);
+      assert(current_level < feature_elements.size() - 1);
+      auto next_cycle = m_combination_unit->calculate_comb_cycle(
+          number_of_v, feature_elements[current_level],
+          feature_elements[current_level + 1]);
+
       m_combination_unit->set_comb_cycle(next_cycle);
       m_combination_unit->set_busy();
     }
@@ -333,12 +417,23 @@ public:
         current_window_size = z;
       }
     }
+
     // currently there are tasks remaining
+    // require: task avaliable but not started
     if (current_window_size != 0 and !current_running and !current_finished) {
-      //
+      // if the resource are ready get to the
       assert(current_window_remain_cycles == 0);
       if (InputBuffer.is_current_data_ready() and
           EdgeBuffer.is_current_data_ready() and aggr_buffer.is_next_empty()) {
+#ifndef NDEBUG
+        ASSERT((InputBuffer.get_current_location() ==
+                {current_x, current_y, current_window_size, current_level}));
+        ASSERT((EdgeBuffer.get_current_location() ==
+                {current_x, current_y, current_window_size, current_level}));
+        ASSERT((aggr_buffer.get_current_location() ==
+                {current_x, current_y, current_window_size, current_level}));
+#endif
+
         // the buffer is ready, now run it!
         current_window_remain_cycles =
             calculate_the_cycle_of_window(current_x, current_y, current_level);
@@ -346,6 +441,7 @@ public:
         if (current_window_remain_cycles == 0) {
           current_finished = true;
         }
+      } else {
       }
     }
 

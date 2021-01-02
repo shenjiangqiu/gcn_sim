@@ -6,7 +6,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
-template <typename Node_type> class Graph {
+ class Graph {
   using ull = unsigned long long;
   // the csc format graph
 private:
@@ -19,10 +19,10 @@ public:
   // index
   unsigned get_num_nodes() const { return edge_index.size() - 1; }
   ull get_edge_index_addr(unsigned index) const {
-    return (Graph<Node_type>::ull) & (edge_index.at(index));
+    return (ull) & (edge_index.at(index));
   }
   ull get_dege_addr(unsigned index) const {
-    return (Graph<Node_type>::ull) & (edges.at(index));
+    return (ull) & (edges.at(index));
   }
   unsigned get_edge_size(unsigned index) const {
     return edge_index.at(index + 1) - edge_index.at(index);

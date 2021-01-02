@@ -7,9 +7,40 @@
 #include <string>
 #include <types.h>
 
-class Aggregator_buffer {
+class Buffer_base {
+public:
+  std::tuple<unsigned, unsigned, unsigned, unsigned> get_current_location() {
+    return {x, y, z, l};
+  }
+  std::tuple<unsigned, unsigned, unsigned, unsigned> get_next_location() {
+    return {nx, ny, nz, nl};
+  }
+  void
+  set_current_location(std::tuple<unsigned, unsigned, unsigned, unsigned> t) {
+    auto [_x, _y, _z, _l] = t;
+    x = _x;
+    y = _y;
+    z = _z;
+    l = _l;
+  }
+  void set_next_location(std::tuple<unsigned, unsigned, unsigned, unsigned> t) {
+    auto [_x, _y, _z, _l] = t;
+    nx = _x;
+    ny = _y;
+    nz = _z;
+    nl = _l;
+  }
+  Buffer_base(const std::string name) : name(name) {}
+
+private:
+  unsigned x, y, z, l;
+  unsigned nx, ny, nz, nl;
+  std::string name;
+};
+class Aggregator_buffer : Buffer_base {
 public:
   Aggregator_buffer();
+  Aggregator_buffer(const std::string name) : Buffer_base(name) {}
   // this is the special buffer for the aggregator and comb,
   // the aggregator put the result in
   // the comb comsume the buffer.
@@ -35,8 +66,9 @@ private:
   //
 };
 
-class WriteBuffer {
+class WriteBuffer : Buffer_base {
 public:
+  WriteBuffer(const std::string name) : Buffer_base(name) {}
   // start to write to the
   void start_write(std::shared_ptr<Req> req) {
     assert(!next_req);
@@ -81,6 +113,7 @@ public:
       assert(current_buffer_finished == false);
     }
   }
+  bool is_next_empty() { return next_buffer_empty; }
 
 private:
   std::shared_ptr<Req> current_req;
@@ -94,10 +127,8 @@ private:
 // and call buffer.cycle
 // when the data is ready the current_data_ready will be true,
 // remeber to send the mem request out and
-class Buffer {
+class Buffer : Buffer_base {
 private:
-  std::string name;
-
   unsigned long long current_addr = 0;
   unsigned current_lenghth = 0;
   bool current_data_ready = false;
@@ -109,8 +140,6 @@ private:
   bool next_data_ready = false;
   bool next_task_ready = false;
   bool next_task_sent = false;
-  unsigned x, y, z, l;
-  unsigned nx, ny, nz, nl;
 
   std::queue<std::shared_ptr<Req>> in_task_queu;
   std::shared_ptr<Req> current_buffer_task;
@@ -134,34 +163,10 @@ public:
     next_data_ready = false;
     next_task_ready = false;
     next_task_sent = false;
-    x = 0, y = 0, z = 0, l = 0;
-    nx = 0, ny = 0, nz = 0, nl = 0;
   }
   void send(std::shared_ptr<Req> req) { in_task_queu.push(req); }
   void cycle();
-  std::tuple<unsigned, unsigned, unsigned, unsigned> get_current_location() {
-    return {x, y, z, l};
-  }
-  std::tuple<unsigned, unsigned, unsigned, unsigned> get_next_location() {
-    return {nx, ny, nz, nl};
-  }
-  void
-  set_current_location(std::tuple<unsigned, unsigned, unsigned, unsigned> t) {
-    auto [_x, _y, _z, _l] = t;
-    x = _x;
-    y = _y;
-    z = _z;
-    l = _l;
-  }
-  void set_next_location(std::tuple<unsigned, unsigned, unsigned, unsigned> t) {
-    auto [_x, _y, _z, _l] = t;
-    nx = _x;
-    ny = _y;
-    nz = _z;
-    nl = _l;
-  }
 
-  Buffer(std::string name) : name(name) {}
   // when next buffer is ready, move it to current
   void add_task_and_move(unsigned long long addr, unsigned lenghth);
   // move the next buffer to current, and do not add new task.
@@ -223,5 +228,7 @@ public:
     assert(next_task_sent = false);
     assert(next_data_ready = false);
   }
+
+  Buffer(const std::string name) : Buffer_base(name) {}
 };
 #endif /* BUFFER_H */
